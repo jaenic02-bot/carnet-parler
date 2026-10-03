@@ -53,6 +53,7 @@ details{margin-top:16px;color:var(--muted);font-size:.9rem}
 <body>
 <div class="wrap">
   <header><h1>Parler</h1><span>Sprechübung zum Carnet de français</span></header>
+  <p id="inapp" hidden style="background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 12px;margin:0 0 10px">Diese Seite läuft offenbar in einem eingebetteten Browser. Für das Mikrofon bitte über das Menü „In Chrome öffnen“ wählen.</p>
   <main id="main"></main>
   <details><summary>Eigene Sätze üben</summary>
     <p>Ein Satz pro Zeile, auf Französisch.</p>
@@ -90,17 +91,24 @@ function speak(t,slow){if(!TTS)return;speechSynthesis.cancel();const u=new Speec
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let rec=null;
 const st={list:readHash()||DEFAULT,i:0,res:null,heard:'',live:'',on:false,err:'',scores:[]};
-function listen(){
+let micOk=false;
+async function ensureMic(){
+  if(micOk||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return true;
+  try{const s=await navigator.mediaDevices.getUserMedia({audio:true});s.getTracks().forEach(t=>t.stop());micOk=true;return true}
+  catch(e){st.err=({NotAllowedError:'Chrome bekommt keinen Zugriff aufs Mikrofon (NotAllowedError). Prüfe: Android-Einstellungen → Apps → Chrome → Berechtigungen → Mikrofon → „Bei Nutzung der App zulassen“. Und öffne diese Seite direkt in Chrome, nicht aus der Claude-App heraus.',NotFoundError:'Kein Mikrofon gefunden (NotFoundError).',NotReadableError:'Das Mikrofon wird gerade von einer anderen App benutzt (NotReadableError).'})[e.name]||('Mikrofon-Fehler: '+e.name+' '+(e.message||''));render();return false}
+}
+async function listen(){
   if(!SR)return;
   if(st.on){rec&&rec.stop();return}
   st.err='';st.live='';st.res=null;
+  if(!(await ensureMic()))return;
   rec=new SR();rec.lang='fr-FR';rec.interimResults=true;rec.maxAlternatives=5;rec.continuous=false;
   let finals=[];
   rec.onresult=e=>{
     const r=e.results[e.results.length-1];
     if(r.isFinal){finals=Array.from(r).map(a=>a.transcript)}else{st.live=r[0].transcript;render()}
   };
-  rec.onerror=e=>{st.err=({'not-allowed':'Das Mikrofon ist für diese Seite blockiert. Tippe in Chrome links neben der Adresse auf das Symbol → Berechtigungen → Mikrofon erlauben.','no-speech':'Ich habe nichts gehört. Tippe auf das Mikrofon und sprich gleich los.','network':'Die Spracherkennung braucht eine Internetverbindung.','audio-capture':'Kein Mikrofon gefunden.'})[e.error]||('Fehler bei der Spracherkennung: '+e.error)};
+  rec.onerror=e=>{st.err=({'not-allowed':'Die Spracherkennung darf das Mikrofon nicht nutzen (not-allowed). Öffne die Seite direkt in Chrome und prüfe, ob Chrome in den Android-Einstellungen das Mikrofon nutzen darf.','service-not-allowed':'Der Spracherkennungsdienst ist auf dem Handy gesperrt (service-not-allowed). Prüfe, ob die App „Google“ aktiviert ist und das Mikrofon nutzen darf.','no-speech':'Ich habe nichts gehört. Tippe auf das Mikrofon und sprich gleich los.','network':'Die Spracherkennung braucht eine Internetverbindung.','audio-capture':'Kein Mikrofon gefunden.'})[e.error]||('Fehler bei der Spracherkennung: '+e.error)};
   rec.onend=()=>{st.on=false;
     if(finals.length){const t=st.list[st.i].fr;let best=null,bh='';for(const f of finals){const c=compare(t,f);if(!best||c.score>best.score){best=c;bh=f}}st.res=best;st.heard=bh}
     else if(st.live&&!st.err){st.res=compare(st.list[st.i].fr,st.live);st.heard=st.live}
@@ -135,6 +143,7 @@ document.addEventListener('click',e=>{
   else if(a==='again'){st.i=0;st.scores=[];st.res=null;render()}
 });
 $('#useOwn').addEventListener('click',()=>{const l=$('#own').value.split('\n').map(s=>s.trim()).filter(Boolean).map(fr=>({fr,de:''}));if(l.length){st.list=l;st.i=0;st.scores=[];st.res=null;render();window.scrollTo(0,0)}});
+try{if(/; wv\)|FBAN|FBAV|Instagram/.test(navigator.userAgent))document.getElementById('inapp').hidden=false}catch(e){}
 render();
 </script>
 </body>
