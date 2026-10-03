@@ -92,7 +92,6 @@ function readTalk(){
   try{const m=location.hash.match(/^#k(?:=([A-Za-z0-9_-]*))?/);if(!m)return null;if(!m[1])return {};
     const b=m[1].replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(decodeURIComponent(escape(atob(b+'==='.slice((b.length+3)%4)))))||{}}catch(e){return location.hash.startsWith('#k')?{}:null}
 }
-const CARNET='https://claude.ai/artifact/EgUiPeDKMoRyq4q4eK5Nv4';
 /* speech output */
 let voice=null;const TTS='speechSynthesis' in window;
 function loadV(){try{const v=speechSynthesis.getVoices();voice=v.find(x=>x.lang==='fr-FR')||v.find(x=>(x.lang||'').startsWith('fr'))||null}catch(e){}}
@@ -193,8 +192,8 @@ function renderDict(m){
   h+=`<div class="hint">${st.on?(useW?'Ich nehme auf … zum Beenden noch einmal tippen':(st.live?'«'+esc(st.live)+'»':'Ich höre zu …')):st.live?esc(st.live):(st.dict?'Noch etwas ergänzen: wieder aufs Mikrofon tippen.':'Tippe aufs Mikrofon und sprich deine Antwort auf Französisch.')}</div>`;
   if(st.err)h+=`<div class="notice warn">${esc(st.err)}</div>`;
   h+=`<textarea id="dict" lang="fr" rows="3" placeholder="Hier erscheint, was du gesagt hast.">${esc(st.dict)}</textarea>`;
-  h+=`<div class="row"><button class="btn primary" data-a="copy"${st.dict?'':' disabled'}>${st.copied?'✓ Kopiert':'Kopieren'}</button><button class="btn" data-a="clear"${st.dict?'':' disabled'}>Löschen</button><a class="btn" href="${CARNET}">Zurück zum Carnet</a></div>`;
-  if(st.copied)h+=`<div class="hint">Im Carnet ins Antwortfeld tippen, lange drücken und „Einfügen“ wählen.</div>`;
+  h+=`<div class="row"><button class="btn primary" data-a="copy"${st.dict?'':' disabled'}>${st.copied?'✓ Kopiert':'Kopieren'}</button><button class="btn" data-a="clear"${st.dict?'':' disabled'}>Löschen</button></div>`;
+  if(st.copied)h+=`<div class="hint">Mit der Zurück-Taste zum Carnet, ins Antwortfeld tippen, lange drücken und „Einfügen“ wählen.</div>`;
   h+=`<button class="btn" style="border:0;background:none;color:var(--muted);font-size:.85rem" data-a="engine">Erkennung: ${useW?'eingebaut (läuft auf dem Gerät)':'Chrome/Android'} · wechseln</button>`;
   m.innerHTML=h+`</div>`;
 }
