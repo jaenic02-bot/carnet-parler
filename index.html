@@ -48,11 +48,15 @@ header span{color:var(--muted);font-size:.9rem}
 .w-ok{color:var(--ok)} .w-bad{color:var(--red);text-decoration:underline wavy}
 textarea{width:100%;font:inherit;font-family:var(--f-read);color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px;min-height:80px}
 details{margin-top:16px;color:var(--muted);font-size:.9rem}
+nav.tabs{display:flex;gap:6px;margin-left:auto}
+nav.tabs a{color:var(--muted);text-decoration:none;padding:4px 10px;border-radius:99px;font-size:.9rem}
+nav.tabs a.on{background:var(--blue-soft);color:var(--blue);font-weight:700}
+#sub{display:none}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header><h1>Parler</h1><span id="sub">Sprechübung zum Carnet de français</span></header>
+  <header><h1>Parler</h1><span id="sub">Nachsprechen</span><nav class="tabs"><a class="on" href="./">Nachsprechen</a><a href="gespraech.html">Gespräch</a></nav></header>
   <p id="inapp" hidden style="background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 12px;margin:0 0 10px">Diese Seite läuft offenbar in einem eingebetteten Browser. Für das Mikrofon bitte über das Menü „In Chrome öffnen“ wählen.</p>
   <main id="main"></main>
   <details style="color:var(--ink)"><summary>Mikrofon-Test</summary>
