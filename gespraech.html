@@ -102,11 +102,15 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const API='https://generativelanguage.googleapis.com/v1beta/';
 
 /* state, kept on this device only */
-const S={key:'',model:'',stage:'s6',auto:true,talk:null,busy:'',err:'',rec:false,sheet:null,keyMsg:''};
+const S={key:'',model:'',stage:'s6',auto:true,talk:null,ctx:null,busy:'',err:'',rec:false,sheet:null,keyMsg:''};
 function load(){try{Object.assign(S,JSON.parse(localStorage.getItem('parler-gespraech')||'{}'))}catch(e){}S.busy='';S.err='';S.rec=false;S.sheet=null;S.keyMsg=''}
-function save(){try{localStorage.setItem('parler-gespraech',JSON.stringify({key:S.key,model:S.model,stage:S.stage,auto:S.auto,talk:S.talk}))}catch(e){}}
+function save(){try{localStorage.setItem('parler-gespraech',JSON.stringify({key:S.key,model:S.model,stage:S.stage,auto:S.auto,talk:S.talk,ctx:S.ctx}))}catch(e){}}
 load();
 {const m=location.hash.match(/s=(s4|s6|s9|s12|s15|adult)/);if(m){S.stage=m[1];save()}}
+{const m=location.hash.match(/^#c=([A-Za-z0-9_-]+)/);if(m){try{const b=m[1].replace(/-/g,'+').replace(/_/g,'/');
+  const d=JSON.parse(decodeURIComponent(escape(atob(b+'==='.slice((b.length+3)%4)))));
+  S.ctx={u:Array.isArray(d.u)?d.u.filter(x=>x&&x.t).slice(0,3):[],v:Array.isArray(d.v)?d.v.filter(x=>x&&x.fr).slice(0,15):[],at:Date.now()};
+  if(STAGES.some(x=>x.id===d.s))S.stage=d.s;save();history.replaceState(null,'',location.pathname)}catch(e){}}}
 const stage=()=>STAGES.find(s=>s.id===S.stage)||STAGES[1];
 
 /* speech output */
@@ -160,7 +164,14 @@ async function gem(parts){
   try{return JSON.parse(txt)}catch(e){const m=txt.match(/\{[\s\S]*\}/);if(m)return JSON.parse(m[0]);throw new Error('Unerwartete Antwort von Google.')}
 }
 const transcript=()=>S.talk.msgs.map(m=>(m.role==='p'?'Camille: ':'Lerner: ')+m.fr).join('\n');
-const partnerRole=()=>`Du bist Camille, eine freundliche Französin, und führst ein mündliches Gespräch zum Thema «${S.talk.topic}». Dein Gegenüber ist ein deutschsprachiger Erwachsener, der sein Schulfranzösisch auffrischt. Sprich mit ihm ${stage().prompt}. Antworte mit 1 bis 2 kurzen Sätzen und stelle meist eine einfache Rückfrage, damit das Gespräch weiterläuft.`;
+function ctxText(){
+  let t='';const u=S.talk.unit;
+  if(u)t+=`\nIhr sprecht über einen Text, den er gerade im Carnet gelesen hat («${u.f||u.t}»). Inhalt: ${u.x}\nStelle Fragen zum Text und zu seiner Meinung dazu.`;
+  const v=(S.ctx&&S.ctx.v)||[];
+  if(v.length)t+=`\nEr lernt gerade diese Wörter: ${v.map(x=>x.fr).join(', ')}. Baue einige davon natürlich ins Gespräch ein, wenn sie passen.`;
+  return t;
+}
+const partnerRole=()=>`Du bist Camille, eine freundliche Französin, und führst ein mündliches Gespräch zum Thema «${S.talk.topic}». Dein Gegenüber ist ein deutschsprachiger Erwachsener, der sein Schulfranzösisch auffrischt. Sprich mit ihm ${stage().prompt}. Antworte mit 1 bis 2 kurzen Sätzen und stelle meist eine einfache Rückfrage, damit das Gespräch weiterläuft.${ctxText()}`;
 
 async function openTalk(){
   S.busy='p';render();
@@ -245,8 +256,10 @@ function vStart(){
   <div class="hint">Camille spricht mit dir auf deiner Stufe. Der Coach hört zu und sagt dir auf Antippen, was du besser aussprechen oder formulieren kannst.</div>
   <label style="width:100%;text-align:left">Stufe<select id="stage">${STAGES.map(s=>`<option value="${s.id}" ${s.id===S.stage?'selected':''}>${s.name} (${s.cefr})</option>`).join('')}</select></label>
   <div style="width:100%;text-align:left">Worüber willst du reden?</div>
+  ${S.ctx&&S.ctx.u.length?`<div class="chips">${S.ctx.u.map((u,i)=>`<button class="btn" data-a="unit" data-i="${i}">📖 ${esc(u.t)}</button>`).join('')}</div>`:''}
   <div class="chips">${TOPICS.map(t=>`<button class="btn" data-a="topic" data-t="${esc(t)}">${esc(t)}</button>`).join('')}</div>
   <form id="topf" class="row" style="width:100%"><input type="text" id="topic" placeholder="Eigenes Thema" style="flex:1;min-width:160px"><button class="btn" type="submit">Los</button></form>
+  <div class="hint" style="font-size:.85rem">${S.ctx&&(S.ctx.u.length||S.ctx.v.length)?`Aus dem Carnet: ${S.ctx.u.length} Texte, ${S.ctx.v.length} Vokabeln (Stand ${new Date(S.ctx.at).toLocaleDateString('de-DE')}). Zum Aktualisieren das Gespräch im Carnet öffnen.`:'Öffne das Gespräch aus dem Carnet (Sprechen), dann kennt Camille deine Texte und Vokabeln.'}</div>
   <button class="btn" style="border:0;background:none;color:var(--muted);font-size:.85rem" data-a="settings">Einstellungen</button></div>`;
 }
 function vChat(){
@@ -301,6 +314,7 @@ document.addEventListener('click',e=>{
   if(a==='say')speak(b.dataset.t);else if(a==='slow')speak(b.dataset.t,true);
   else if(a==='mic')toggleRec();
   else if(a==='topic')startTalk(b.dataset.t);
+  else if(a==='unit'){const u=S.ctx.u[+b.dataset.i];startTalk(u.t,u)}
   else if(a==='de'){const m=S.talk.msgs[+b.dataset.i];m.showDe=!m.showDe;save();render()}
   else if(a==='coach'){S.sheet={kind:'turn',i:+b.dataset.i};S.talk.fresh=false;save();render()}
   else if(a==='coachmain'){const i=S.talk.msgs.map(m=>m.role).lastIndexOf('me');S.talk.fresh=false;save();if(i>=0)S.sheet={kind:'turn',i};else getHints();render()}
@@ -320,7 +334,7 @@ document.addEventListener('submit',async e=>{
     try{S.model=await pickModel(k);S.key=k;S.setup=false;save()}catch(err){S.keyMsg=errText(err).replace(' Bitte unter „Einstellungen“ neu einfügen.','')}
     S.busy='';render()}
 });
-function startTalk(topic){S.talk={topic,msgs:[],fresh:false};S.err='';save();render();openTalk()}
+function startTalk(topic,unit){S.talk={topic,unit:unit||null,msgs:[],fresh:false};S.err='';save();render();openTalk()}
 render();
 </script>
 </body>
