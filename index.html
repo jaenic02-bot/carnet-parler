@@ -52,16 +52,16 @@ details{margin-top:16px;color:var(--muted);font-size:.9rem}
 </head>
 <body>
 <div class="wrap">
-  <header><h1>Parler</h1><span>Sprechübung zum Carnet de français</span></header>
+  <header><h1>Parler</h1><span id="sub">Sprechübung zum Carnet de français</span></header>
   <p id="inapp" hidden style="background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 12px;margin:0 0 10px">Diese Seite läuft offenbar in einem eingebetteten Browser. Für das Mikrofon bitte über das Menü „In Chrome öffnen“ wählen.</p>
   <main id="main"></main>
-  <details open style="color:var(--ink)"><summary>Mikrofon-Test</summary>
+  <details style="color:var(--ink)"><summary>Mikrofon-Test</summary>
     <p class="hint" style="margin:6px 0">Tippe auf „Test starten“ und sprich ein paar Sekunden. Bewegt sich der Balken, bekommt Chrome Ton vom Mikrofon.</p>
     <div class="row" style="justify-content:flex-start"><button class="btn" id="micTest">Test starten</button></div>
     <div style="height:12px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:8px"><i id="lvl" style="display:block;height:100%;width:0;background:var(--ok)"></i></div>
     <p id="micRes" class="hint" style="margin:6px 0"></p>
   </details>
-  <details><summary>Eigene Sätze üben</summary>
+  <details id="ownBox"><summary>Eigene Sätze üben</summary>
     <p>Ein Satz pro Zeile, auf Französisch.</p>
     <textarea id="own" lang="fr" placeholder="Je voudrais un café, s'il vous plaît."></textarea>
     <div class="row" style="justify-content:flex-start;margin-top:8px"><button class="btn" id="useOwn">Diese Sätze üben</button></div>
@@ -88,6 +88,11 @@ function readHash(){
     const b=m[1].replace(/-/g,'+').replace(/_/g,'/');const json=decodeURIComponent(escape(atob(b+'==='.slice((b.length+3)%4))));
     const d=JSON.parse(json);return Array.isArray(d.s)&&d.s.length?d.s.filter(x=>x&&x.fr).slice(0,20):null}catch(e){return null}
 }
+function readTalk(){
+  try{const m=location.hash.match(/^#k(?:=([A-Za-z0-9_-]*))?/);if(!m)return null;if(!m[1])return {};
+    const b=m[1].replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(decodeURIComponent(escape(atob(b+'==='.slice((b.length+3)%4)))))||{}}catch(e){return location.hash.startsWith('#k')?{}:null}
+}
+const CARNET='https://claude.ai/artifact/EgUiPeDKMoRyq4q4eK5Nv4';
 /* speech output */
 let voice=null;const TTS='speechSynthesis' in window;
 function loadV(){try{const v=speechSynthesis.getVoices();voice=v.find(x=>x.lang==='fr-FR')||v.find(x=>(x.lang||'').startsWith('fr'))||null}catch(e){}}
@@ -96,7 +101,9 @@ function speak(t,slow){if(!TTS)return;speechSynthesis.cancel();const u=new Speec
 /* speech input */
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let rec=null;
-const st={list:readHash()||DEFAULT,i:0,res:null,heard:'',live:'',on:false,err:'',scores:[]};
+const talk=readTalk();
+const st={mode:talk?'dict':'rep',talk:talk||{},dict:'',copied:false,list:readHash()||DEFAULT,i:0,res:null,heard:'',live:'',on:false,err:'',scores:[]};
+function addDict(t){st.dict=(st.dict?st.dict.replace(/\s+$/,'')+' ':'')+String(t).trim();st.copied=false}
 /* built-in recognition (Whisper in the browser), used when Android's speech service is blocked */
 let useW=false;try{useW=localStorage.getItem('parler-engine')==='w'}catch(e){}
 let whisperP=null;
@@ -124,10 +131,10 @@ async function recordW(){
       const ctx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000});const buf=await ctx.decodeAudioData(ab);const data=buf.getChannelData(0);ctx.close();
       const w=await wp;const out=await w(data,{language:'french',task:'transcribe'});
       const text=String(out&&out.text||'').trim();st.live='';
-      if(text&&!/^\[.*\]$/.test(text)){st.res=compare(st.list[st.i].fr,text);st.heard=text}else st.err='Ich habe nichts verstanden. Bitte noch einmal deutlich sprechen.';
+      if(text&&!/^\[.*\]$/.test(text)){if(st.mode==='dict')addDict(text);else{st.res=compare(st.list[st.i].fr,text);st.heard=text}}else st.err='Ich habe nichts verstanden. Bitte noch einmal deutlich sprechen.';
     }catch(e){st.live='';st.err='Auswertung fehlgeschlagen ('+(e&&e.message||e)+').'}
     render()};
-  mr.start();st.on=true;recTimer=setTimeout(()=>{if(mr.state==='recording')mr.stop()},8000);render();
+  mr.start();st.on=true;recTimer=setTimeout(()=>{if(mr.state==='recording')mr.stop()},st.mode==='dict'?25000:8000);render();
 }
 function setEngine(w){useW=w;try{localStorage.setItem('parler-engine',w?'w':'a')}catch(e){}if(w)getWhisper().catch(e=>{st.err='Spracherkennung konnte nicht geladen werden ('+(e&&e.message||e)+').';render()});render()}
 let micOk=false;
@@ -148,6 +155,7 @@ async function listen(){
   };
   rec.onerror=e=>{if(['not-allowed','service-not-allowed'].includes(e.error)){st.err='Android gibt die Spracherkennung nicht frei ('+e.error+'). Ich schalte auf die eingebaute Erkennung um. Tippe gleich noch einmal aufs Mikrofon.';setEngine(true);return}st.err=({'not-allowed':'Die Spracherkennung darf das Mikrofon nicht nutzen (not-allowed). Öffne die Seite direkt in Chrome und prüfe, ob Chrome in den Android-Einstellungen das Mikrofon nutzen darf.','service-not-allowed':'Der Spracherkennungsdienst ist auf dem Handy gesperrt (service-not-allowed). Prüfe, ob die App „Google“ aktiviert ist und das Mikrofon nutzen darf.','no-speech':'Ich habe nichts gehört. Tippe auf das Mikrofon und sprich gleich los.','network':'Die Spracherkennung braucht eine Internetverbindung.','audio-capture':'Kein Mikrofon gefunden.'})[e.error]||('Fehler bei der Spracherkennung: '+e.error);if(!/\(/.test(st.err))st.err+=' ('+e.error+')'};
   rec.onend=()=>{st.on=false;
+    if(st.mode==='dict'){const t=finals[0]||st.live;st.live='';if(t)addDict(t);render();return}
     if(finals.length){const t=st.list[st.i].fr;let best=null,bh='';for(const f of finals){const c=compare(t,f);if(!best||c.score>best.score){best=c;bh=f}}st.res=best;st.heard=bh}
     else if(st.live&&!st.err){st.res=compare(st.list[st.i].fr,st.live);st.heard=st.live}
     render()};
@@ -158,6 +166,7 @@ function render(){
   const m=$('#main');
   if(!SR&&!useW&&window.MediaRecorder){useW=true}
   if(!SR&&!window.MediaRecorder){m.innerHTML=`<div class="card"><div class="notice warn">Dieser Browser hat keine Spracherkennung. Öffne die Seite bitte in <b>Chrome</b>.</div></div>`;return}
+  if(st.mode==='dict'){renderDict(m);return}
   const it=st.list[st.i];
   if(!it){const avg=st.scores.length?st.scores.reduce((a,b)=>a+b,0)/st.scores.length:0;
     m.innerHTML=`<div class="card"><div class="q">Très bien !</div><div class="hint">${Math.round(avg*100)} % der Wörter wurden richtig erkannt.</div><div class="row"><button class="btn primary" data-a="again">Nochmal von vorn</button></div></div>`;return}
@@ -176,9 +185,30 @@ function render(){
   h+=`<button class="btn" style="border:0;background:none;color:var(--muted);font-size:.85rem" data-a="engine">Erkennung: ${useW?'eingebaut (läuft auf dem Gerät)':'Chrome/Android'} · wechseln</button>`;
   m.innerHTML=h+`</div>`;
 }
+function renderDict(m){
+  const q=st.talk.q||'';let h=`<div class="card">`;
+  if(q){h+=`<div class="hint">Dein Gesprächspartner sagt:</div><div class="q">${esc(q)}</div>`;if(st.talk.de)h+=`<div class="hint">${esc(st.talk.de)}</div>`;if(TTS)h+=`<div class="row"><button class="btn" data-a="sayq">🔊 Anhören</button><button class="btn" data-a="slowq">Langsam</button></div>`}
+  h+=`<button class="btn primary mic${st.on?' on':''}" data-a="mic" aria-label="${st.on?'Aufnahme beenden':'Sprechen'}">🎤</button>`;
+  if(st.load)h+=`<div class="hint">${esc(st.load)}</div>`;
+  h+=`<div class="hint">${st.on?(useW?'Ich nehme auf … zum Beenden noch einmal tippen':(st.live?'«'+esc(st.live)+'»':'Ich höre zu …')):st.live?esc(st.live):(st.dict?'Noch etwas ergänzen: wieder aufs Mikrofon tippen.':'Tippe aufs Mikrofon und sprich deine Antwort auf Französisch.')}</div>`;
+  if(st.err)h+=`<div class="notice warn">${esc(st.err)}</div>`;
+  h+=`<textarea id="dict" lang="fr" rows="3" placeholder="Hier erscheint, was du gesagt hast.">${esc(st.dict)}</textarea>`;
+  h+=`<div class="row"><button class="btn primary" data-a="copy"${st.dict?'':' disabled'}>${st.copied?'✓ Kopiert':'Kopieren'}</button><button class="btn" data-a="clear"${st.dict?'':' disabled'}>Löschen</button><a class="btn" href="${CARNET}">Zurück zum Carnet</a></div>`;
+  if(st.copied)h+=`<div class="hint">Im Carnet ins Antwortfeld tippen, lange drücken und „Einfügen“ wählen.</div>`;
+  h+=`<button class="btn" style="border:0;background:none;color:var(--muted);font-size:.85rem" data-a="engine">Erkennung: ${useW?'eingebaut (läuft auf dem Gerät)':'Chrome/Android'} · wechseln</button>`;
+  m.innerHTML=h+`</div>`;
+}
+async function copyDict(){
+  const t=st.dict.trim();if(!t)return;
+  try{await navigator.clipboard.writeText(t)}catch(e){const ta=$('#dict');ta.select();try{document.execCommand('copy')}catch(_){}}
+  st.copied=true;render();
+}
+document.addEventListener('input',e=>{if(e.target.id==='dict'){st.dict=e.target.value;st.copied=false;const b=document.querySelector('[data-a=copy]');if(b){b.textContent='Kopieren';b.disabled=!st.dict.trim()}}});
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;const it=st.list[st.i];
-  if(a==='say')speak(it.fr);else if(a==='slow')speak(it.fr,true);else if(a==='mic'){useW||!SR?recordW():listen()}
+  if(a==='sayq')speak(st.talk.q||'');else if(a==='slowq')speak(st.talk.q||'',true);
+  else if(a==='copy')copyDict();else if(a==='clear'){st.dict='';st.copied=false;render()}
+  else if(a==='say')speak(it.fr);else if(a==='slow')speak(it.fr,true);else if(a==='mic'){useW||!SR?recordW():listen()}
   else if(a==='engine')setEngine(!useW);
   else if(a==='next'){st.scores.push(st.res.score);st.i++;st.res=null;st.err='';render()}
   else if(a==='skip'){st.i++;st.res=null;st.err='';render()}
@@ -196,6 +226,7 @@ $('#micTest').addEventListener('click',async()=>{
   }catch(e){out.textContent='Ergebnis: Chrome bekommt keinen Mikrofonzugriff ('+e.name+').'}
 });
 $('#useOwn').addEventListener('click',()=>{const l=$('#own').value.split('\n').map(s=>s.trim()).filter(Boolean).map(fr=>({fr,de:''}));if(l.length){st.list=l;st.i=0;st.scores=[];st.res=null;render();window.scrollTo(0,0)}});
+if(st.mode==='dict'){$('#sub').textContent='Antwort fürs Gespräch im Carnet';$('#ownBox').hidden=true}
 try{if(/; wv\)|FBAN|FBAV|Instagram/.test(navigator.userAgent))document.getElementById('inapp').hidden=false}catch(e){}
 render();
 </script>
