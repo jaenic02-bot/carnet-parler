@@ -94,9 +94,9 @@ function readTalk(){
 }
 /* speech output */
 let voice=null;const TTS='speechSynthesis' in window;
-function loadV(){try{const v=speechSynthesis.getVoices();voice=v.find(x=>x.lang==='fr-FR')||v.find(x=>(x.lang||'').startsWith('fr'))||null}catch(e){}}
+function loadV(){try{const vs=speechSynthesis.getVoices().filter(v=>/^fr\b/i.test((v.lang||'').replace('_','-')));const rank=v=>(/fr-FR/i.test(v.lang.replace('_','-'))?0:2)+(/google/i.test(v.name)?0:1);voice=vs.sort((a,b)=>rank(a)-rank(b))[0]||null}catch(e){}}
 if(TTS){loadV();speechSynthesis.onvoiceschanged=loadV}
-function speak(t,slow){if(!TTS)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='fr-FR';if(voice)u.voice=voice;u.rate=slow?0.7:0.95;speechSynthesis.speak(u)}
+function speak(t,slow){if(!TTS)return;if(!voice)loadV();speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='fr-FR';if(voice)u.voice=voice;u.rate=slow?0.7:0.95;speechSynthesis.speak(u)}
 /* speech input */
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let rec=null;
