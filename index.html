@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Carnet · Parler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Literata:opsz,wght@7..72,400;7..72,600&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+:root{
+  --paper:#f7f8fb; --card:#ffffff; --ink:#1d2540; --muted:#5a6380;
+  --blue:#2546a6; --blue-soft:#e6ecfa; --red:#c4313b; --line:#dfe3ee;
+  --ok:#2c7a4b; --ok-soft:#e3f2e8; --warn:#9a5b00; --warn-soft:#fbefd9;
+  --f-display:"Young Serif", Georgia, serif;
+  --f-read:"Literata", Georgia, serif;
+  --f-ui:"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --paper:#13161f; --card:#1a1e2b; --ink:#e5e8f2; --muted:#9ba3bb;
+  --blue:#93a9ff; --blue-soft:#232b48; --red:#ff7b83; --line:#2a3044;
+  --ok:#74d39b; --ok-soft:#1b3326; --warn:#f0b65c; --warn-soft:#3a2c14; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-ui);font-size:16px;line-height:1.5;
+  padding:env(safe-area-inset-top,0px) 16px calc(32px + env(safe-area-inset-bottom,0px))}
+.wrap{max-width:640px;margin:0 auto}
+header{padding-block:16px 8px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+h1{font-family:var(--f-display);font-weight:400;color:var(--blue);margin:0;font-size:1.6rem}
+header span{color:var(--muted);font-size:.9rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px 18px;display:flex;flex-direction:column;gap:14px;align-items:center;text-align:center}
+.q{font-family:var(--f-read);font-size:1.45rem;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
+.hint{color:var(--muted)}
+.row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.btn{font:inherit;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:9px 16px;cursor:pointer}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:var(--paper);font-weight:700}
+.btn:disabled{opacity:.5}
+.btn:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.mic{width:84px;height:84px;border-radius:50%;font-size:2rem;padding:0;display:grid;place-items:center}
+.mic.on{background:var(--red);border-color:var(--red);animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{transform:scale(1.07)}}
+@media (prefers-reduced-motion: reduce){.mic.on{animation:none}}
+.notice{border-radius:8px;padding:10px 12px;font-size:.95rem;width:100%}
+.notice.ok{background:var(--ok-soft);color:var(--ok)}
+.notice.warn{background:var(--warn-soft);color:var(--warn)}
+.progress{display:flex;justify-content:space-between;color:var(--muted);font-size:.9rem;margin-block:8px;font-variant-numeric:tabular-nums}
+.w-ok{color:var(--ok)} .w-bad{color:var(--red);text-decoration:underline wavy}
+textarea{width:100%;font:inherit;font-family:var(--f-read);color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px;min-height:80px}
+details{margin-top:16px;color:var(--muted);font-size:.9rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>Parler</h1><span>Sprechübung zum Carnet de français</span></header>
+  <main id="main"></main>
+  <details><summary>Eigene Sätze üben</summary>
+    <p>Ein Satz pro Zeile, auf Französisch.</p>
+    <textarea id="own" lang="fr" placeholder="Je voudrais un café, s'il vous plaît."></textarea>
+    <div class="row" style="justify-content:flex-start;margin-top:8px"><button class="btn" id="useOwn">Diese Sätze üben</button></div>
+  </details>
+</div>
+<script>
+const DEFAULT=[["Bonjour, je m'appelle Thomas.","Guten Tag, ich heiße Thomas."],["Je voudrais un café, s'il vous plaît.","Ich hätte gern einen Kaffee, bitte."],["Où est la gare ?","Wo ist der Bahnhof?"],["J'habite en Allemagne.","Ich wohne in Deutschland."],["Il fait beau aujourd'hui.","Heute ist schönes Wetter."],["Je ne comprends pas.","Ich verstehe nicht."]].map(([fr,de])=>({fr,de}));
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm=s=>String(s||'').toLowerCase().replace(/[’]/g,"'").normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-zœæ0-9' -]/g,'').trim();
+const NUMW={'0':'zero','1':'un','2':'deux','3':'trois','4':'quatre','5':'cinq','6':'six','7':'sept','8':'huit','9':'neuf','10':'dix','20':'vingt'};
+const words=s=>String(s||'').replace(/[’]/g,"'").replace(/(\w)'(\w)/g,"$1' $2").split(/[\s,.;:!?«»"()\-–]+/).filter(Boolean);
+const wn=w=>NUMW[w]||norm(w);
+function compare(target,given){
+  const t=words(target),tn=t.map(wn),g=words(given).map(wn);
+  const L=Array.from({length:t.length+1},()=>new Array(g.length+1).fill(0));
+  for(let i=t.length-1;i>=0;i--)for(let j=g.length-1;j>=0;j--)L[i][j]=tn[i]===g[j]?L[i+1][j+1]+1:Math.max(L[i+1][j],L[i][j+1]);
+  const ok=new Array(t.length).fill(false);let i=0,j=0;
+  while(i<t.length&&j<g.length){if(tn[i]===g[j]){ok[i]=true;i++;j++}else if(L[i+1][j]>=L[i][j+1])i++;else j++}
+  return {words:t.map((w,k)=>({w,ok:ok[k]})),score:t.length?ok.filter(Boolean).length/t.length:0};
+}
+function readHash(){
+  try{const m=location.hash.match(/^#d=([A-Za-z0-9_-]+)/);if(!m)return null;
+    const b=m[1].replace(/-/g,'+').replace(/_/g,'/');const json=decodeURIComponent(escape(atob(b+'==='.slice((b.length+3)%4))));
+    const d=JSON.parse(json);return Array.isArray(d.s)&&d.s.length?d.s.filter(x=>x&&x.fr).slice(0,20):null}catch(e){return null}
+}
+/* speech output */
+let voice=null;const TTS='speechSynthesis' in window;
+function loadV(){try{const v=speechSynthesis.getVoices();voice=v.find(x=>x.lang==='fr-FR')||v.find(x=>(x.lang||'').startsWith('fr'))||null}catch(e){}}
+if(TTS){loadV();speechSynthesis.onvoiceschanged=loadV}
+function speak(t,slow){if(!TTS)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='fr-FR';if(voice)u.voice=voice;u.rate=slow?0.7:0.95;speechSynthesis.speak(u)}
+/* speech input */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null;
+const st={list:readHash()||DEFAULT,i:0,res:null,heard:'',live:'',on:false,err:'',scores:[]};
+function listen(){
+  if(!SR)return;
+  if(st.on){rec&&rec.stop();return}
+  st.err='';st.live='';st.res=null;
+  rec=new SR();rec.lang='fr-FR';rec.interimResults=true;rec.maxAlternatives=5;rec.continuous=false;
+  let finals=[];
+  rec.onresult=e=>{
+    const r=e.results[e.results.length-1];
+    if(r.isFinal){finals=Array.from(r).map(a=>a.transcript)}else{st.live=r[0].transcript;render()}
+  };
+  rec.onerror=e=>{st.err=({'not-allowed':'Das Mikrofon ist für diese Seite blockiert. Tippe in Chrome links neben der Adresse auf das Symbol → Berechtigungen → Mikrofon erlauben.','no-speech':'Ich habe nichts gehört. Tippe auf das Mikrofon und sprich gleich los.','network':'Die Spracherkennung braucht eine Internetverbindung.','audio-capture':'Kein Mikrofon gefunden.'})[e.error]||('Fehler bei der Spracherkennung: '+e.error)};
+  rec.onend=()=>{st.on=false;
+    if(finals.length){const t=st.list[st.i].fr;let best=null,bh='';for(const f of finals){const c=compare(t,f);if(!best||c.score>best.score){best=c;bh=f}}st.res=best;st.heard=bh}
+    else if(st.live&&!st.err){st.res=compare(st.list[st.i].fr,st.live);st.heard=st.live}
+    render()};
+  try{rec.start();st.on=true}catch(e){st.err='Spracherkennung konnte nicht starten.'}
+  render();
+}
+function render(){
+  const m=$('#main');
+  if(!SR){m.innerHTML=`<div class="card"><div class="notice warn">Dieser Browser hat keine Spracherkennung. Öffne die Seite bitte in <b>Chrome</b>.</div></div>`;return}
+  const it=st.list[st.i];
+  if(!it){const avg=st.scores.length?st.scores.reduce((a,b)=>a+b,0)/st.scores.length:0;
+    m.innerHTML=`<div class="card"><div class="q">Très bien !</div><div class="hint">${Math.round(avg*100)} % der Wörter wurden richtig erkannt.</div><div class="row"><button class="btn primary" data-a="again">Nochmal von vorn</button></div></div>`;return}
+  let h=`<div class="progress"><span>Satz ${st.i+1} von ${st.list.length}</span><span>${st.scores.length?Math.round(st.scores.reduce((a,b)=>a+b,0)/st.scores.length*100)+' % bisher':''}</span></div><div class="card">`;
+  if(st.res)h+=`<div class="q">${st.res.words.map(x=>`<span class="${x.ok?'w-ok':'w-bad'}">${esc(x.w)}</span>`+(/'$/.test(x.w)?'':' ')).join('')}</div>`;
+  else h+=`<div class="q">${esc(it.fr)}</div>`;
+  if(it.de)h+=`<div class="hint">${esc(it.de)}</div>`;
+  if(TTS)h+=`<div class="row"><button class="btn" data-a="say">🔊 Anhören</button><button class="btn" data-a="slow">Langsam</button></div>`;
+  h+=`<button class="btn primary mic${st.on?' on':''}" data-a="mic" aria-label="${st.on?'Aufnahme beenden':'Sprechen'}">🎤</button>`;
+  h+=st.on?`<div class="hint">${st.live?'«'+esc(st.live)+'»':'Ich höre zu …'}</div>`:`<div class="hint">${st.res?'':'Tippe aufs Mikrofon und sprich den Satz nach.'}</div>`;
+  if(st.err)h+=`<div class="notice warn">${esc(st.err)}</div>`;
+  if(st.res){const p=Math.round(st.res.score*100);
+    h+=`<div class="notice ${p>=80?'ok':'warn'}">${p} % erkannt${p<100?'. Rot markierte Wörter noch einmal anhören und nachsprechen.':' – parfait !'}<br><span style="opacity:.8">Gehört: «${esc(st.heard)}»</span></div><div class="row"><button class="btn primary" data-a="next">Weiter</button></div>`}
+  else h+=`<div class="row"><button class="btn" data-a="skip">Überspringen</button></div>`;
+  m.innerHTML=h+`</div>`;
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;const it=st.list[st.i];
+  if(a==='say')speak(it.fr);else if(a==='slow')speak(it.fr,true);else if(a==='mic')listen();
+  else if(a==='next'){st.scores.push(st.res.score);st.i++;st.res=null;st.err='';render()}
+  else if(a==='skip'){st.i++;st.res=null;st.err='';render()}
+  else if(a==='again'){st.i=0;st.scores=[];st.res=null;render()}
+});
+$('#useOwn').addEventListener('click',()=>{const l=$('#own').value.split('\n').map(s=>s.trim()).filter(Boolean).map(fr=>({fr,de:''}));if(l.length){st.list=l;st.i=0;st.scores=[];st.res=null;render();window.scrollTo(0,0)}});
+render();
+</script>
+</body>
+</html>
