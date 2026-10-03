@@ -55,6 +55,12 @@ details{margin-top:16px;color:var(--muted);font-size:.9rem}
   <header><h1>Parler</h1><span>Sprechübung zum Carnet de français</span></header>
   <p id="inapp" hidden style="background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 12px;margin:0 0 10px">Diese Seite läuft offenbar in einem eingebetteten Browser. Für das Mikrofon bitte über das Menü „In Chrome öffnen“ wählen.</p>
   <main id="main"></main>
+  <details open style="color:var(--ink)"><summary>Mikrofon-Test</summary>
+    <p class="hint" style="margin:6px 0">Tippe auf „Test starten“ und sprich ein paar Sekunden. Bewegt sich der Balken, bekommt Chrome Ton vom Mikrofon.</p>
+    <div class="row" style="justify-content:flex-start"><button class="btn" id="micTest">Test starten</button></div>
+    <div style="height:12px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:8px"><i id="lvl" style="display:block;height:100%;width:0;background:var(--ok)"></i></div>
+    <p id="micRes" class="hint" style="margin:6px 0"></p>
+  </details>
   <details><summary>Eigene Sätze üben</summary>
     <p>Ein Satz pro Zeile, auf Französisch.</p>
     <textarea id="own" lang="fr" placeholder="Je voudrais un café, s'il vous plaît."></textarea>
@@ -142,6 +148,16 @@ document.addEventListener('click',e=>{
   else if(a==='again'){st.i=0;st.scores=[];st.res=null;render()}
 });
 document.addEventListener('submit',e=>{if(e.target.id!=='kb')return;e.preventDefault();const v=$('#kbin').value.trim();if(!v)return;st.res=compare(st.list[st.i].fr,v);st.heard=v;st.err='';render()});
+$('#micTest').addEventListener('click',async()=>{
+  const out=$('#micRes'),bar=$('#lvl');out.textContent='Frage Mikrofon an …';
+  try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();const an=ctx.createAnalyser();an.fftSize=512;ctx.createMediaStreamSource(stream).connect(an);
+    const buf=new Uint8Array(an.fftSize);let max=0;const t0=Date.now();out.textContent='Sprich jetzt …';
+    (function loop(){an.getByteTimeDomainData(buf);let pk=0;for(const v of buf)pk=Math.max(pk,Math.abs(v-128));max=Math.max(max,pk);bar.style.width=Math.min(100,pk/0.6)+'%';
+      if(Date.now()-t0<5000)requestAnimationFrame(loop);else{stream.getTracks().forEach(t=>t.stop());ctx.close();bar.style.width='0';
+        out.textContent=max>8?'Ergebnis: Chrome bekommt Ton vom Mikrofon (Pegel '+max+'). Das Problem liegt also beim Spracherkennungsdienst.':'Ergebnis: Chrome hat Zugriff, hört aber nichts (Pegel '+max+'). Ist das Mikrofon stummgeschaltet oder von einer anderen App belegt?'}})();
+  }catch(e){out.textContent='Ergebnis: Chrome bekommt keinen Mikrofonzugriff ('+e.name+').'}
+});
 $('#useOwn').addEventListener('click',()=>{const l=$('#own').value.split('\n').map(s=>s.trim()).filter(Boolean).map(fr=>({fr,de:''}));if(l.length){st.list=l;st.i=0;st.scores=[];st.res=null;render();window.scrollTo(0,0)}});
 try{if(/; wv\)|FBAN|FBAV|Instagram/.test(navigator.userAgent))document.getElementById('inapp').hidden=false}catch(e){}
 render();
