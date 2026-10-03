@@ -97,6 +97,39 @@ function speak(t,slow){if(!TTS)return;speechSynthesis.cancel();const u=new Speec
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let rec=null;
 const st={list:readHash()||DEFAULT,i:0,res:null,heard:'',live:'',on:false,err:'',scores:[]};
+/* built-in recognition (Whisper in the browser), used when Android's speech service is blocked */
+let useW=false;try{useW=localStorage.getItem('parler-engine')==='w'}catch(e){}
+let whisperP=null;
+function getWhisper(){
+  if(!whisperP)whisperP=(async()=>{
+    st.load='Lade Spracherkennung (einmalig ca. 40 MB) …';render();
+    const m=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js');
+    const files={};
+    const w=await m.pipeline('automatic-speech-recognition','Xenova/whisper-tiny',{progress_callback:p=>{
+      if(p.status==='progress'&&p.total){files[p.file]=[p.loaded,p.total];let a=0,b=0;for(const k in files){a+=files[k][0];b+=files[k][1]}st.load='Lade Spracherkennung … '+Math.round(a/b*100)+' %';render()}}});
+    st.load='';render();return w})().catch(e=>{whisperP=null;st.load='';throw e});
+  return whisperP;
+}
+let mr=null,recStream=null,recTimer=null;
+async function recordW(){
+  if(st.on){if(mr&&mr.state==='recording')mr.stop();return}
+  st.err='';st.res=null;st.live='';
+  const wp=getWhisper();wp.catch(()=>{});
+  try{recStream=await navigator.mediaDevices.getUserMedia({audio:true})}catch(e){st.err='Kein Mikrofonzugriff ('+e.name+').';render();return}
+  const chunks=[];mr=new MediaRecorder(recStream);mr.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+  mr.onstop=async()=>{
+    st.on=false;clearTimeout(recTimer);recStream.getTracks().forEach(t=>t.stop());st.live='Werte aus …';render();
+    try{
+      const ab=await new Blob(chunks,{type:mr.mimeType}).arrayBuffer();
+      const ctx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000});const buf=await ctx.decodeAudioData(ab);const data=buf.getChannelData(0);ctx.close();
+      const w=await wp;const out=await w(data,{language:'french',task:'transcribe'});
+      const text=String(out&&out.text||'').trim();st.live='';
+      if(text&&!/^\[.*\]$/.test(text)){st.res=compare(st.list[st.i].fr,text);st.heard=text}else st.err='Ich habe nichts verstanden. Bitte noch einmal deutlich sprechen.';
+    }catch(e){st.live='';st.err='Auswertung fehlgeschlagen ('+(e&&e.message||e)+').'}
+    render()};
+  mr.start();st.on=true;recTimer=setTimeout(()=>{if(mr.state==='recording')mr.stop()},8000);render();
+}
+function setEngine(w){useW=w;try{localStorage.setItem('parler-engine',w?'w':'a')}catch(e){}if(w)getWhisper().catch(e=>{st.err='Spracherkennung konnte nicht geladen werden ('+(e&&e.message||e)+').';render()});render()}
 let micOk=false;
 async function ensureMic(){
   if(micOk||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return true;
@@ -113,7 +146,7 @@ async function listen(){
     const r=e.results[e.results.length-1];
     if(r.isFinal){finals=Array.from(r).map(a=>a.transcript)}else{st.live=r[0].transcript;render()}
   };
-  rec.onerror=e=>{if(e.error==='not-allowed')ensureMic();st.err=({'not-allowed':'Die Spracherkennung darf das Mikrofon nicht nutzen (not-allowed). Öffne die Seite direkt in Chrome und prüfe, ob Chrome in den Android-Einstellungen das Mikrofon nutzen darf.','service-not-allowed':'Der Spracherkennungsdienst ist auf dem Handy gesperrt (service-not-allowed). Prüfe, ob die App „Google“ aktiviert ist und das Mikrofon nutzen darf.','no-speech':'Ich habe nichts gehört. Tippe auf das Mikrofon und sprich gleich los.','network':'Die Spracherkennung braucht eine Internetverbindung.','audio-capture':'Kein Mikrofon gefunden.'})[e.error]||('Fehler bei der Spracherkennung: '+e.error);if(!/\(/.test(st.err))st.err+=' ('+e.error+')'};
+  rec.onerror=e=>{if(['not-allowed','service-not-allowed'].includes(e.error)){st.err='Android gibt die Spracherkennung nicht frei ('+e.error+'). Ich schalte auf die eingebaute Erkennung um. Tippe gleich noch einmal aufs Mikrofon.';setEngine(true);return}st.err=({'not-allowed':'Die Spracherkennung darf das Mikrofon nicht nutzen (not-allowed). Öffne die Seite direkt in Chrome und prüfe, ob Chrome in den Android-Einstellungen das Mikrofon nutzen darf.','service-not-allowed':'Der Spracherkennungsdienst ist auf dem Handy gesperrt (service-not-allowed). Prüfe, ob die App „Google“ aktiviert ist und das Mikrofon nutzen darf.','no-speech':'Ich habe nichts gehört. Tippe auf das Mikrofon und sprich gleich los.','network':'Die Spracherkennung braucht eine Internetverbindung.','audio-capture':'Kein Mikrofon gefunden.'})[e.error]||('Fehler bei der Spracherkennung: '+e.error);if(!/\(/.test(st.err))st.err+=' ('+e.error+')'};
   rec.onend=()=>{st.on=false;
     if(finals.length){const t=st.list[st.i].fr;let best=null,bh='';for(const f of finals){const c=compare(t,f);if(!best||c.score>best.score){best=c;bh=f}}st.res=best;st.heard=bh}
     else if(st.live&&!st.err){st.res=compare(st.list[st.i].fr,st.live);st.heard=st.live}
@@ -123,7 +156,8 @@ async function listen(){
 }
 function render(){
   const m=$('#main');
-  if(!SR){m.innerHTML=`<div class="card"><div class="notice warn">Dieser Browser hat keine Spracherkennung. Öffne die Seite bitte in <b>Chrome</b>.</div></div>`;return}
+  if(!SR&&!useW&&window.MediaRecorder){useW=true}
+  if(!SR&&!window.MediaRecorder){m.innerHTML=`<div class="card"><div class="notice warn">Dieser Browser hat keine Spracherkennung. Öffne die Seite bitte in <b>Chrome</b>.</div></div>`;return}
   const it=st.list[st.i];
   if(!it){const avg=st.scores.length?st.scores.reduce((a,b)=>a+b,0)/st.scores.length:0;
     m.innerHTML=`<div class="card"><div class="q">Très bien !</div><div class="hint">${Math.round(avg*100)} % der Wörter wurden richtig erkannt.</div><div class="row"><button class="btn primary" data-a="again">Nochmal von vorn</button></div></div>`;return}
@@ -133,16 +167,19 @@ function render(){
   if(it.de)h+=`<div class="hint">${esc(it.de)}</div>`;
   if(TTS)h+=`<div class="row"><button class="btn" data-a="say">🔊 Anhören</button><button class="btn" data-a="slow">Langsam</button></div>`;
   h+=`<button class="btn primary mic${st.on?' on':''}" data-a="mic" aria-label="${st.on?'Aufnahme beenden':'Sprechen'}">🎤</button>`;
-  h+=st.on?`<div class="hint">${st.live?'«'+esc(st.live)+'»':'Ich höre zu …'}</div>`:`<div class="hint">${st.res?'':'Tippe aufs Mikrofon und sprich den Satz nach.'}</div>`;
+  if(st.load)h+=`<div class="hint">${esc(st.load)}</div>`;
+  h+=st.on?`<div class="hint">${useW?'Ich nehme auf … zum Beenden noch einmal tippen':(st.live?'«'+esc(st.live)+'»':'Ich höre zu …')}</div>`:st.live?`<div class="hint">${esc(st.live)}</div>`:`<div class="hint">${st.res?'':'Tippe aufs Mikrofon und sprich den Satz nach.'}</div>`;
   if(st.err)h+=`<div class="notice warn">${esc(st.err)}</div>`;
   if(st.res){const p=Math.round(st.res.score*100);
     h+=`<div class="notice ${p>=80?'ok':'warn'}">${p} % erkannt${p<100?'. Rot markierte Wörter noch einmal anhören und nachsprechen.':' – parfait !'}<br><span style="opacity:.8">Gehört: «${esc(st.heard)}»</span></div><div class="row"><button class="btn primary" data-a="next">Weiter</button></div>`}
   else h+=`<form id="kb" style="width:100%;display:flex;flex-direction:column;gap:8px;align-items:center"><div class="hint">Oder per Tastatur-Mikrofon: ins Feld tippen, auf das Mikrofon von Gboard tippen und den Satz sprechen.</div><textarea id="kbin" lang="fr" rows="2" style="max-width:420px;min-height:64px;text-align:center"></textarea><div class="row"><button class="btn" type="submit">Prüfen</button><button class="btn" type="button" data-a="skip">Überspringen</button></div></form>`;
+  h+=`<button class="btn" style="border:0;background:none;color:var(--muted);font-size:.85rem" data-a="engine">Erkennung: ${useW?'eingebaut (läuft auf dem Gerät)':'Chrome/Android'} · wechseln</button>`;
   m.innerHTML=h+`</div>`;
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;const it=st.list[st.i];
-  if(a==='say')speak(it.fr);else if(a==='slow')speak(it.fr,true);else if(a==='mic')listen();
+  if(a==='say')speak(it.fr);else if(a==='slow')speak(it.fr,true);else if(a==='mic'){useW||!SR?recordW():listen()}
+  else if(a==='engine')setEngine(!useW);
   else if(a==='next'){st.scores.push(st.res.score);st.i++;st.res=null;st.err='';render()}
   else if(a==='skip'){st.i++;st.res=null;st.err='';render()}
   else if(a==='again'){st.i=0;st.scores=[];st.res=null;render()}
