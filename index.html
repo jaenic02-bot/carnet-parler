@@ -101,14 +101,13 @@ async function listen(){
   if(!SR)return;
   if(st.on){rec&&rec.stop();return}
   st.err='';st.live='';st.res=null;
-  if(!(await ensureMic()))return;
   rec=new SR();rec.lang='fr-FR';rec.interimResults=true;rec.maxAlternatives=5;rec.continuous=false;
   let finals=[];
   rec.onresult=e=>{
     const r=e.results[e.results.length-1];
     if(r.isFinal){finals=Array.from(r).map(a=>a.transcript)}else{st.live=r[0].transcript;render()}
   };
-  rec.onerror=e=>{st.err=({'not-allowed':'Die Spracherkennung darf das Mikrofon nicht nutzen (not-allowed). Öffne die Seite direkt in Chrome und prüfe, ob Chrome in den Android-Einstellungen das Mikrofon nutzen darf.','service-not-allowed':'Der Spracherkennungsdienst ist auf dem Handy gesperrt (service-not-allowed). Prüfe, ob die App „Google“ aktiviert ist und das Mikrofon nutzen darf.','no-speech':'Ich habe nichts gehört. Tippe auf das Mikrofon und sprich gleich los.','network':'Die Spracherkennung braucht eine Internetverbindung.','audio-capture':'Kein Mikrofon gefunden.'})[e.error]||('Fehler bei der Spracherkennung: '+e.error)};
+  rec.onerror=e=>{if(e.error==='not-allowed')ensureMic();st.err=({'not-allowed':'Die Spracherkennung darf das Mikrofon nicht nutzen (not-allowed). Öffne die Seite direkt in Chrome und prüfe, ob Chrome in den Android-Einstellungen das Mikrofon nutzen darf.','service-not-allowed':'Der Spracherkennungsdienst ist auf dem Handy gesperrt (service-not-allowed). Prüfe, ob die App „Google“ aktiviert ist und das Mikrofon nutzen darf.','no-speech':'Ich habe nichts gehört. Tippe auf das Mikrofon und sprich gleich los.','network':'Die Spracherkennung braucht eine Internetverbindung.','audio-capture':'Kein Mikrofon gefunden.'})[e.error]||('Fehler bei der Spracherkennung: '+e.error);if(!/\(/.test(st.err))st.err+=' ('+e.error+')'};
   rec.onend=()=>{st.on=false;
     if(finals.length){const t=st.list[st.i].fr;let best=null,bh='';for(const f of finals){const c=compare(t,f);if(!best||c.score>best.score){best=c;bh=f}}st.res=best;st.heard=bh}
     else if(st.live&&!st.err){st.res=compare(st.list[st.i].fr,st.live);st.heard=st.live}
@@ -132,7 +131,7 @@ function render(){
   if(st.err)h+=`<div class="notice warn">${esc(st.err)}</div>`;
   if(st.res){const p=Math.round(st.res.score*100);
     h+=`<div class="notice ${p>=80?'ok':'warn'}">${p} % erkannt${p<100?'. Rot markierte Wörter noch einmal anhören und nachsprechen.':' – parfait !'}<br><span style="opacity:.8">Gehört: «${esc(st.heard)}»</span></div><div class="row"><button class="btn primary" data-a="next">Weiter</button></div>`}
-  else h+=`<div class="row"><button class="btn" data-a="skip">Überspringen</button></div>`;
+  else h+=`<form id="kb" style="width:100%;display:flex;flex-direction:column;gap:8px;align-items:center"><div class="hint">Oder per Tastatur-Mikrofon: ins Feld tippen, auf das Mikrofon von Gboard tippen und den Satz sprechen.</div><textarea id="kbin" lang="fr" rows="2" style="max-width:420px;min-height:64px;text-align:center"></textarea><div class="row"><button class="btn" type="submit">Prüfen</button><button class="btn" type="button" data-a="skip">Überspringen</button></div></form>`;
   m.innerHTML=h+`</div>`;
 }
 document.addEventListener('click',e=>{
@@ -142,6 +141,7 @@ document.addEventListener('click',e=>{
   else if(a==='skip'){st.i++;st.res=null;st.err='';render()}
   else if(a==='again'){st.i=0;st.scores=[];st.res=null;render()}
 });
+document.addEventListener('submit',e=>{if(e.target.id!=='kb')return;e.preventDefault();const v=$('#kbin').value.trim();if(!v)return;st.res=compare(st.list[st.i].fr,v);st.heard=v;st.err='';render()});
 $('#useOwn').addEventListener('click',()=>{const l=$('#own').value.split('\n').map(s=>s.trim()).filter(Boolean).map(fr=>({fr,de:''}));if(l.length){st.list=l;st.i=0;st.scores=[];st.res=null;render();window.scrollTo(0,0)}});
 try{if(/; wv\)|FBAN|FBAV|Instagram/.test(navigator.userAgent))document.getElementById('inapp').hidden=false}catch(e){}
 render();
